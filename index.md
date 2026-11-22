@@ -30,14 +30,14 @@ h1 {
 }
 
 .archive hr {
-  height: 3pt;
-  margin: 1.4em 0 4.2em;
+  height: 1pt;
+  margin: 1.4em 0;
   border: 0;
   background: #000;
 }
 
 .archive .links p {
-  margin-bottom: 2.8em;
+  margin-bottom: 1.4em;
 }
 
 .archive a {
