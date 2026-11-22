@@ -77,6 +77,9 @@ function extractHtml(html, url, base) {
   result.publisher = metadata(doc, 'meta[property="og:site_name"]');
   const root = doc.querySelector('article') || doc.querySelector('main') || doc.querySelector('.mw-parser-output') || doc.body;
   root.querySelectorAll('script,style,nav,footer,header,aside,form,button,iframe,[role="navigation"], [aria-label*="advert" i], [class*="advert" i], [id*="advert" i]').forEach(el => el.remove());
+  if (root.matches('.mw-parser-output')) {
+    root.querySelectorAll('.ambox,.hatnote,.mw-editsection,.navbox,.shortdescription,.sistersitebox').forEach(element => element.remove());
+  }
   const blocks = [...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,pre,li,figcaption,table')]
     .filter(el => !el.parentElement?.closest('li,blockquote,table,figure'))
     .map(el => el.textContent.trim()).filter(Boolean);

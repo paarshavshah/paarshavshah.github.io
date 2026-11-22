@@ -2,12 +2,12 @@
 import { PDFDocument, PDFName, PDFString, PDFArray } from 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm';
 import fontkit from 'https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/+esm';
 
-const FONT_ROOT = 'https://cdn.jsdelivr.net/npm/@fontsource/eb-garamond@5.2.7/files/';
+const FONT_ROOT = new URL('./fonts/', import.meta.url);
 const FONT_FILES = {
-  regular: 'eb-garamond-latin-400-normal.woff',
-  bold: 'eb-garamond-latin-700-normal.woff',
-  italic: 'eb-garamond-latin-400-italic.woff',
-  boldItalic: 'eb-garamond-latin-700-italic.woff'
+  regular: '400-normal.ttf',
+  bold: '700-normal.ttf',
+  italic: '400-italic.ttf',
+  boldItalic: '700-italic.ttf'
 };
 const WIDTH = 612, HEIGHT = 792, MARGIN = 72, TEXT_WIDTH = WIDTH - MARGIN * 2;
 
@@ -44,7 +44,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
   pdf.registerFontkit(fontkit);
   const fonts = {};
   for (const [style, filename] of Object.entries(FONT_FILES)) {
-    fonts[style] = await pdf.embedFont(await fetchBytes(FONT_ROOT + filename), { subset: true });
+    fonts[style] = await pdf.embedFont(await fetchBytes(new URL(filename, FONT_ROOT)), { subset: false });
   }
   pdf.setTitle(title || '');
   if (author) pdf.setAuthor(author);
