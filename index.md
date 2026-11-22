@@ -7,8 +7,8 @@ body *::after {
   font-family: "Courier New", Courier, monospace !important;
 }
 
-header,
-header * {
+h1,
+h1 * {
   font-family: "Courier New", Courier, monospace !important;
   font-size: 14pt !important;
   font-weight: bold !important;
