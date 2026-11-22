@@ -15,7 +15,7 @@ h1 {
 }
 
 .archive-title {
-  margin: 0 0 2.8em;
+  margin: 0 0 28pt;
   font-size: 18pt;
   font-weight: bold;
   line-height: 1.2;
