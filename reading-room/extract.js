@@ -80,10 +80,20 @@ function extractHtml(html, url, base) {
   if (root.matches('.mw-parser-output')) {
     root.querySelectorAll('.ambox,.hatnote,.mw-editsection,.navbox,.shortdescription,.sistersitebox').forEach(element => element.remove());
   }
-  const blocks = [...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,pre,li,figcaption,table')]
-    .filter(el => !el.parentElement?.closest('li,blockquote,table,figure'))
-    .map(el => el.textContent.trim()).filter(Boolean);
-  result.text = blocks.join('\n\n');
+  let inReferences = false;
+  result.blocks = [...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,pre,li,table')]
+    .filter(element => !element.parentElement?.closest('li,blockquote,table,figure'))
+    .map(element => {
+      const text = element.textContent.trim();
+      if (/^H[1-6]$/.test(element.tagName)) {
+        const level = Number(element.tagName[1]);
+        if (level <= 2) inReferences = /^(references|bibliography|sources|works cited|notes|citations)$/i.test(text);
+        return { type: 'heading', level, text, inReferences };
+      }
+      const type = inReferences ? 'bibliography' : element.tagName === 'BLOCKQUOTE' ? 'quote' : 'paragraph';
+      return { type, text };
+    }).filter(block => block.text);
+  result.text = result.blocks.map(block => block.text).join('\n\n');
   if (!result.text.trim()) throw new Error(URL_ERROR);
   for (const figure of root.querySelectorAll('figure')) {
     const image = figure.querySelector('img');

@@ -27,32 +27,23 @@
 
     <section id="review" class="review" hidden aria-labelledby="review-heading">
       <h1 id="review-heading">Review</h1>
+      <div class="actions">
+        <button id="back" type="button">Back</button>
+        <button id="generate" type="button">Generate PDF</button>
+      </div>
+      <p id="review-status" class="status" role="status" aria-live="polite"></p>
       <div class="metadata">
         <label>Title<input id="meta-title" type="text"></label>
         <label>Author<input id="meta-author" type="text"></label>
         <label>Publication date<input id="meta-date" type="text"></label>
         <label>Publisher<input id="meta-publisher" type="text"></label>
       </div>
-      <div class="review-columns">
-        <section class="source-view" aria-labelledby="original-heading">
-          <h2 id="original-heading">Original</h2>
-          <div id="source-preview"></div>
-        </section>
-        <section aria-labelledby="text-heading">
-          <h2 id="text-heading">Text</h2>
-          <textarea id="review-text" rows="24" aria-label="Review text"></textarea>
-        </section>
-      </div>
+      <div id="flagged-text"></div>
       <div id="review-flags" class="flags" aria-live="polite"></div>
       <section id="images-section" hidden aria-labelledby="images-heading">
         <h2 id="images-heading">Images</h2>
         <div id="review-images"></div>
       </section>
-      <div class="actions">
-        <button id="back" type="button">Back</button>
-        <button id="generate" type="button">Generate PDF</button>
-      </div>
-      <p id="review-status" class="status" role="status" aria-live="polite"></p>
     </section>
 
     <section id="result" class="result" hidden aria-labelledby="result-heading">
@@ -64,6 +55,6 @@
       </div>
     </section>
   </main>
-  <script type="module" src="app.js?v=3"></script>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>

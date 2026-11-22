@@ -98,10 +98,17 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     if (y - height < MARGIN + noteHeight(extraNotes)) nextPage();
   }
   function textBlock(block) {
-    const font = block.bold && block.italic ? fonts.boldItalic : block.bold ? fonts.bold : block.italic ? fonts.italic : fonts.regular;
-    const size = block.type === 'heading' ? 18 : block.type === 'bibliography' ? 8 : 12;
-    const leading = block.type === 'heading' ? 23 : block.type === 'bibliography' ? 11 : lineHeight;
-    const lines = linesOf(block.text || '', font, size, TEXT_WIDTH);
+    const heading = block.type === 'heading';
+    const quoteIndent = block.type === 'quote' ? 18 : 0;
+    const bold = block.bold || heading;
+    const font = bold && block.italic ? fonts.boldItalic : bold ? fonts.bold : block.italic ? fonts.italic : fonts.regular;
+    const size = heading ? (block.level > 2 ? 14 : 18) : block.type === 'bibliography' ? 8 : 12;
+    const leading = heading ? size + 5 : block.type === 'bibliography' ? 11 : lineHeight;
+    const lines = linesOf(block.text || '', font, size, TEXT_WIDTH - 2 * quoteIndent);
+    if (heading) {
+      room(lines.length * leading + lineHeight + 14);
+      if (y < HEIGHT - MARGIN) y -= 6;
+    }
     const footnotes = (block.footnotes || []).map(note => typeof note === 'string' ? note : note.text);
     let firstLine = true;
     for (const line of lines) {
@@ -109,7 +116,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
       if (noteHeight(attachNotes) > HEIGHT - 2 * MARGIN - leading) throw new Error('A footnote is too long to fit on one page. Please shorten it in review.');
       room(leading, attachNotes);
       if (firstLine) notes.push(...attachNotes);
-      if (line) page.drawText(line, { x: MARGIN, y: y - size, size, font });
+      if (line) page.drawText(line, { x: MARGIN + quoteIndent, y: y - size, size, font });
       y -= leading;
       firstLine = false;
     }
@@ -134,7 +141,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
   beginPage();
   for (const block of blocks) {
     if (block.type === 'image') await imageBlock(block);
-    else if (block.type === 'bibliography') pending.push(block);
+    else if (block.type === 'bibliography' || block.inReferences) pending.push(block);
     else textBlock(block);
   }
   if (pending.length) {
