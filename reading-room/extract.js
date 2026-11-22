@@ -28,6 +28,9 @@ export async function extractUrl(input, onProgress = () => {}) {
     url = new URL(input.trim());
     if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
   } catch { throw new Error(URL_ERROR); }
+  if (/^en(?:\.m)?\.wikipedia\.org$/.test(url.hostname) && (url.pathname.startsWith('/wiki/') || url.pathname === '/w/index.php')) {
+    return extractWikipedia(url);
+  }
   let response;
   try { response = await fetch(url.href, { credentials: 'omit', cache: 'no-store' }); }
   catch { throw new Error(URL_ERROR); }
@@ -40,14 +43,39 @@ export async function extractUrl(input, onProgress = () => {}) {
   }
   if (!type.includes('text/html') && !type.includes('text/plain')) throw new Error(URL_ERROR);
   if (type.includes('text/plain')) return { ...extractText(await response.text()), source: url.href };
-  const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+  return extractHtml(await response.text(), url, new URL(response.url || url.href));
+}
+
+async function extractWikipedia(url) {
+  try {
+    const revision = url.searchParams.get('oldid');
+    const title = url.pathname.startsWith('/wiki/') ? decodeURIComponent(url.pathname.slice(6)) : url.searchParams.get('title');
+    if (revision ? !/^\d+$/.test(revision) : !title) throw new Error();
+    const endpoint = new URL('https://en.wikipedia.org/w/api.php');
+    endpoint.search = new URLSearchParams({
+      action: 'parse', format: 'json', formatversion: '2', origin: '*',
+      prop: 'text', redirects: '1', disableeditsection: '1', disabletoc: '1',
+      ...(revision ? { oldid: revision } : { page: title })
+    });
+    const response = await fetch(endpoint, { credentials: 'omit', signal: AbortSignal.timeout(30000) });
+    if (!response.ok) throw new Error();
+    const { parse } = await response.json();
+    if (typeof parse?.text !== 'string') throw new Error();
+    return { ...extractHtml(parse.text, url, new URL('https://en.wikipedia.org/')), title: parse.title, publisher: 'Wikipedia' };
+  } catch {
+    throw new Error(URL_ERROR);
+  }
+}
+
+function extractHtml(html, url, base) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
   const result = blank();
   result.source = url.href;
   result.title = metadata(doc, 'meta[property="og:title"]') || doc.querySelector('h1')?.textContent?.trim() || doc.title;
   result.author = metadata(doc, 'meta[name="author"]');
   result.date = metadata(doc, 'meta[property="article:published_time"]') || doc.querySelector('time[datetime]')?.getAttribute('datetime') || '';
   result.publisher = metadata(doc, 'meta[property="og:site_name"]');
-  const root = doc.querySelector('article') || doc.querySelector('main') || doc.body;
+  const root = doc.querySelector('article') || doc.querySelector('main') || doc.querySelector('.mw-parser-output') || doc.body;
   root.querySelectorAll('script,style,nav,footer,header,aside,form,button,iframe,[role="navigation"], [aria-label*="advert" i], [class*="advert" i], [id*="advert" i]').forEach(el => el.remove());
   const blocks = [...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,pre,li,figcaption,table')]
     .filter(el => !el.parentElement?.closest('li,blockquote,table,figure'))
@@ -58,7 +86,7 @@ export async function extractUrl(input, onProgress = () => {}) {
     const image = figure.querySelector('img');
     const source = image?.getAttribute('src');
     if (!source || source.startsWith('data:')) continue;
-    try { result.images.push({ src: new URL(source, url.href).href, caption: figure.querySelector('figcaption')?.textContent?.trim() || '' }); } catch {}
+    try { result.images.push({ src: new URL(source, base).href, caption: figure.querySelector('figcaption')?.textContent?.trim() || '' }); } catch {}
   }
   result.pages = [{ number: 1, text: result.text, image: '', lowConfidence: true }];
   result.warnings.push('Review the extracted text and images against the source.');
