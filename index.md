@@ -54,6 +54,6 @@ h1 {
     <p><a href="https://paarshavshah.com">Website</a></p>
     <p><a href="https://substack.com/@paarshavshah">Substack</a></p>
     <p><a href="https://www.linkedin.com/in/paarshav-shah">LinkedIn</a></p>
-    <p><a href="https://wiki-reading-room.braveleaf69.chatgpt.site">Wiki Reading Room</a></p>
+    <p><a href="/reading-room/" target="_blank" rel="noopener">The Reading Room</a></p>
   </div>
 </div>
