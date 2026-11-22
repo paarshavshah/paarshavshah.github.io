@@ -51,9 +51,9 @@ h1 {
   <p>Welcome to the seedy underbelly of my mind.</p>
   <hr>
   <div class="links">
-    <p><a href="https://paarshavshah.com">Website</a></p>
-    <p><a href="https://substack.com/@paarshavshah">Substack</a></p>
-    <p><a href="https://www.linkedin.com/in/paarshav-shah">LinkedIn</a></p>
+    <p><a href="https://paarshavshah.com" target="_blank" rel="noopener">Website</a></p>
+    <p><a href="https://substack.com/@paarshavshah" target="_blank" rel="noopener">Substack</a></p>
+    <p><a href="https://www.linkedin.com/in/paarshav-shah" target="_blank" rel="noopener">LinkedIn</a></p>
     <p><a href="/reading-room/" target="_blank" rel="noopener">The Reading Room</a></p>
   </div>
 </div>
