@@ -99,7 +99,17 @@ function extractHtml(html, url, base) {
     const image = figure.querySelector('img');
     const source = image?.getAttribute('src');
     if (!source || source.startsWith('data:')) continue;
-    try { result.images.push({ src: new URL(source, base).href, caption: figure.querySelector('figcaption')?.textContent?.trim() || '' }); } catch {}
+    try {
+      const imageUrl = new URL(source, base);
+      if (!['https:', 'http:'].includes(imageUrl.protocol)) continue;
+      const caption = figure.querySelector('figcaption')?.textContent?.trim() || '';
+      result.images.push({
+        src: imageUrl.href,
+        alt: image.getAttribute('alt') || '',
+        caption,
+        flag: caption ? '' : 'Missing caption'
+      });
+    } catch { /* Skip invalid image URLs. */ }
   }
   result.pages = [{ number: 1, text: result.text, image: '', lowConfidence: true }];
   result.warnings.push('Review the extracted text and images against the source.');
