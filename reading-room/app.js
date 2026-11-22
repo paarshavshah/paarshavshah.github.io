@@ -1,4 +1,4 @@
-import {extractText, extractUrl, extractFiles} from './extract.js';
+import {extractText, extractUrl, extractFiles} from './extract.js?v=2';
 import {generatePdf} from './pdf.js';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
