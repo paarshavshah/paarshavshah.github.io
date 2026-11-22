@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Reading Room</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <section id="start" class="start" aria-labelledby="site-title">
+      <h1 id="site-title">The Reading Room</h1>
+      <form id="source-form">
+        <label class="visually-hidden" for="source-url">Article or PDF link</label>
+        <input id="source-url" type="url" placeholder="Article or PDF link" autocomplete="url">
+        <div class="source-choice"><span>or</span></div>
+        <label class="visually-hidden" for="source-text">Paste text</label>
+        <textarea id="source-text" rows="4" placeholder="Paste text"></textarea>
+        <div class="source-choice"><span>or</span></div>
+        <label class="file-label" for="source-files">Upload PDF or images</label>
+        <input id="source-files" type="file" accept="application/pdf,image/*" multiple>
+        <div id="file-order" class="file-order" aria-live="polite"></div>
+        <button id="prepare" type="submit">Continue</button>
+        <p id="source-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section id="review" class="review" hidden aria-labelledby="review-heading">
+      <h1 id="review-heading">Review</h1>
+      <div class="metadata">
+        <label>Title<input id="meta-title" type="text"></label>
+        <label>Author<input id="meta-author" type="text"></label>
+        <label>Publication date<input id="meta-date" type="text"></label>
+        <label>Publisher<input id="meta-publisher" type="text"></label>
+      </div>
+      <div class="review-columns">
+        <section class="source-view" aria-labelledby="original-heading">
+          <h2 id="original-heading">Original</h2>
+          <div id="source-preview"></div>
+        </section>
+        <section aria-labelledby="text-heading">
+          <h2 id="text-heading">Text</h2>
+          <textarea id="review-text" rows="24" aria-label="Review text"></textarea>
+        </section>
+      </div>
+      <div id="review-flags" class="flags" aria-live="polite"></div>
+      <section id="images-section" hidden aria-labelledby="images-heading">
+        <h2 id="images-heading">Images</h2>
+        <div id="review-images"></div>
+      </section>
+      <div class="actions">
+        <button id="back" type="button">Back</button>
+        <button id="generate" type="button">Generate PDF</button>
+      </div>
+      <p id="review-status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="result" class="result" hidden aria-labelledby="result-heading">
+      <h1 id="result-heading">The Reading Room</h1>
+      <iframe id="pdf-preview" title="PDF preview"></iframe>
+      <div class="actions">
+        <button id="edit" type="button">Review</button>
+        <a id="download" class="button" download="reading-room.pdf">Download PDF</a>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
