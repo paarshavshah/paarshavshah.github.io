@@ -123,9 +123,29 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     y -= heading ? 10 : block.type === 'bibliography' ? 0 : 8;
   }
   async function imageBlock(block) {
-    const bytes = block.bytes || await fetchBytes(block.url);
+    const response = block.bytes ? null : await fetch(block.url);
+    if (response && !response.ok) throw new Error('An illustration could not be loaded.');
+    const blob = response ? await response.blob() : new Blob([block.bytes]);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     let embedded;
-    try { embedded = await pdf.embedPng(bytes); } catch { embedded = await pdf.embedJpg(bytes); }
+    if (bytes[0] === 137 && bytes[1] === 80) embedded = await pdf.embedPng(bytes);
+    else if (bytes[0] === 255 && bytes[1] === 216) embedded = await pdf.embedJpg(bytes);
+    else {
+      const url = URL.createObjectURL(blob);
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        const scale = Math.min(1, 1500 / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        embedded = await pdf.embedPng(canvas.toDataURL('image/png'));
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
     const caption = String(block.caption || '');
     const captionLines = linesOf(caption, fonts.regular, 8, TEXT_WIDTH);
     const capHeight = caption ? captionLines.length * 10 + 8 : 0;
