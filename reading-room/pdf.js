@@ -272,10 +272,8 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     }
     return layouts.get(block);
   }
-  const ordered = [
-    ...blocks.filter(block => block.type !== 'bibliography' && !block.inReferences),
-    ...blocks.filter(block => block.type === 'bibliography' || block.inReferences)
-  ];
+  const references = blocks.filter(block => block.type === 'bibliography' || block.inReferences);
+  const ordered = blocks.filter(block => block.type !== 'bibliography' && !block.inReferences);
   beginPage();
   for (let index = 0; index < ordered.length; index++) {
     const block = ordered[index];
@@ -317,6 +315,49 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     else if (block.type === 'table') tableBlock(block, layout);
     else textBlock(block);
   }
+  if (references.length) bibliography(references);
   finishPage();
   return pdf.save();
+
+  function bibliography(entries) {
+    if (y < HEIGHT - MARGIN) nextPage();
+    const gutter = 18;
+    const columnWidth = (TEXT_WIDTH - gutter) / 2;
+    let index = 0;
+    if (entries[0].type === 'heading') textBlock(entries[index++]);
+    let column = 0;
+    let top = y;
+    function advanceColumn() {
+      if (column === 0) column = 1;
+      else {
+        nextPage();
+        top = y;
+        column = 0;
+      }
+      y = top;
+    }
+    for (; index < entries.length; index++) {
+      const entry = entries[index];
+      if (entry.type === 'table') {
+        if (column || y < top) nextPage();
+        tableBlock(entry, tableLayout(entry));
+        top = y;
+        column = 0;
+        continue;
+      }
+      const heading = entry.type === 'heading';
+      const font = heading ? fonts.bold : fonts.regular;
+      const size = heading ? 14 : 6;
+      const leading = heading ? 17 : 6;
+      const lines = linesOf(entry.text, font, size, columnWidth);
+      const entryHeight = leading * lines.length;
+      const opening = heading && index < entries.length - 1 ? 12 : 0;
+      if (entryHeight + opening > y - MARGIN && y < top && entryHeight <= HEIGHT - 2 * MARGIN) advanceColumn();
+      for (const line of lines) {
+        if (y - leading < MARGIN) advanceColumn();
+        if (line) page.drawText(line, { x: MARGIN + column * (columnWidth + gutter), y: y - size, size, font });
+        y -= leading;
+      }
+    }
+  }
 }
