@@ -2,12 +2,12 @@
 import { PDFDocument, PDFName, PDFString, PDFArray, grayscale } from 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm';
 import fontkit from 'https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/+esm';
 
-const FONT_ROOT = new URL('./fonts/', import.meta.url);
+const FONT_ROOT = new URL('https://cdn.jsdelivr.net/gh/OctavioPardo/EBGaramond12@106a4a6d377987459ae5e68673a4570f13b957fb/fonts/ttf/');
 const FONT_FILES = {
-  regular: '400-normal.ttf',
-  bold: '700-normal.ttf',
-  italic: '400-italic.ttf',
-  boldItalic: '700-italic.ttf'
+  regular: 'EBGaramond-Regular.ttf',
+  bold: 'EBGaramond-Bold.ttf',
+  italic: 'EBGaramond-Italic.ttf',
+  boldItalic: 'EBGaramond-BoldItalic.ttf'
 };
 const WIDTH = 612, HEIGHT = 792, MARGIN = 108, TEXT_WIDTH = WIDTH - MARGIN * 2;
 
@@ -328,6 +328,23 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     if (entries[0].type === 'heading') textBlock(entries[index++]);
     let column = 0;
     let top = y;
+    let balanceAt = -1;
+    const remaining = entries.slice(index);
+    if (remaining.length > 1 && remaining.every(entry => entry.type === 'bibliography')) {
+      const heights = remaining.map(entry => linesOf(entry.text, fonts.regular, 6, columnWidth).length * 6);
+      const total = heights.reduce((sum, height) => sum + height, 0);
+      let left = 0;
+      let bestDifference = Infinity;
+      for (let split = 1; split < heights.length; split++) {
+        left += heights[split - 1];
+        const right = total - left;
+        const difference = Math.abs(left - right);
+        if (Math.max(left, right) <= top - MARGIN && difference < bestDifference) {
+          balanceAt = index + split;
+          bestDifference = difference;
+        }
+      }
+    }
     function advanceColumn() {
       if (column === 0) column = 1;
       else {
@@ -338,6 +355,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
       y = top;
     }
     for (; index < entries.length; index++) {
+      if (index === balanceAt && column === 0) advanceColumn();
       const entry = entries[index];
       if (entry.type === 'table') {
         if (column || y < top) nextPage();

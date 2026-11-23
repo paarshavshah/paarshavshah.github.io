@@ -346,7 +346,7 @@ export async function extractFiles(fileList, onProgress = () => {}) {
         const pdfjs = await pdfLibrary();
         const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
         const { info, metadata } = await pdf.getMetadata().catch(() => ({}));
-        result.title = metadata?.get('dc:title') || info?.Title || '';
+        result.title = info?.Title || metadata?.get('dc:title') || '';
         result.author = info?.Author || '';
         result.publisher = metadata?.get('dc:publisher') || '';
         let journal;
