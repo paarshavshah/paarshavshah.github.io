@@ -142,6 +142,40 @@ function extractHtml(html, url, base) {
   return result;
 }
 
+export async function readScreenshot(source, regions) {
+  const image = new Image();
+  image.src = source;
+  await image.decode();
+  const { createWorker } = await ocrLibrary();
+  const worker = await createWorker('eng');
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: '6' });
+    const results = [];
+    for (const { x, y, width, height } of regions) {
+      const cropWidth = image.naturalWidth * width;
+      const cropHeight = image.naturalHeight * height;
+      const scale = Math.min(4, 1800 / cropWidth, 3600 / cropHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(cropWidth * scale));
+      canvas.height = Math.max(1, Math.round(cropHeight * scale));
+      const context = canvas.getContext('2d');
+      context.fillStyle = 'white';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.filter = 'grayscale(1) contrast(1.25)';
+      context.drawImage(image, image.naturalWidth * x, image.naturalHeight * y,
+        cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+      const { data } = await worker.recognize(canvas);
+      results.push(data);
+    }
+    return {
+      text: results.map(group => group.text.trim()).filter(Boolean).join('\n\n'),
+      unreliable: results.some(group => !group.text.trim() || group.confidence < 65)
+    };
+  } finally {
+    await worker.terminate();
+  }
+}
+
 async function pdfLibrary() {
   const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs');
   pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
@@ -204,8 +238,14 @@ export async function extractFiles(fileList, onProgress = () => {}) {
         await pdf.destroy();
       } else if (file.type.startsWith('image/')) {
         const image = await imageData(file);
-        const { text, lowConfidence } = await recognize(image, result.pages.length + 1);
-        result.pages.push({ number: result.pages.length + 1, text, image, lowConfidence });
+        const preview = new Image();
+        preview.src = image;
+        await preview.decode();
+        const needsCrop = preview.naturalHeight > preview.naturalWidth * 2.4;
+        const { text, lowConfidence } = needsCrop
+          ? { text: '', lowConfidence: true }
+          : await recognize(image, result.pages.length + 1);
+        result.pages.push({ number: result.pages.length + 1, text, image, lowConfidence, needsCrop });
       } else throw new Error('Choose a PDF or image files.');
     }
   } finally { if (worker) await worker.terminate(); }

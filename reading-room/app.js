@@ -1,4 +1,4 @@
-import {extractText, extractUrl, extractFiles} from './extract.js?v=12';
+import {extractText, extractUrl, extractFiles, readScreenshot} from './extract.js?v=15';
 import {generatePdf} from './pdf.js?v=14';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
@@ -14,6 +14,91 @@ function fileOrder() {
     }
     $('file-order').append(row);
   });
+}
+function screenshotPicker(page, original, field) {
+  const wrapper = document.createElement('div');
+  const instruction = document.createElement('p');
+  instruction.textContent = 'Drag over the article text. Select separate areas to skip ads and pictures.';
+  const preview = document.createElement('div');
+  preview.style.position = 'relative';
+  original.style.cssText = 'display:block;width:100%;touch-action:none;user-select:none;cursor:crosshair';
+  original.draggable = false;
+  preview.append(original);
+  const regions = [];
+  const outlines = [];
+  let start;
+  function point(event) {
+    const bounds = original.getBoundingClientRect();
+    const clamp = value => Math.min(1, Math.max(0, value));
+    return [clamp((event.clientX - bounds.left) / bounds.width),
+      clamp((event.clientY - bounds.top) / bounds.height)];
+  }
+  original.onpointerdown = event => {
+    if (event.button !== 0) return;
+    start = point(event);
+    original.setPointerCapture(event.pointerId);
+  };
+  original.onpointercancel = () => { start = null; };
+  original.onpointerup = event => {
+    if (!start) return;
+    const end = point(event);
+    const region = { x: Math.min(start[0], end[0]), y: Math.min(start[1], end[1]),
+      width: Math.abs(end[0] - start[0]), height: Math.abs(end[1] - start[1]) };
+    start = null;
+    if (region.width < 0.02 || region.height < 0.005) return;
+    regions.push(region);
+    page.text = field.value = '';
+    const outline = document.createElement('span');
+    Object.assign(outline.style, { position: 'absolute', pointerEvents: 'none',
+      border: '2px solid #ff0000', background: '#ff000022', boxSizing: 'border-box',
+      left: region.x * 100 + '%', top: region.y * 100 + '%',
+      width: region.width * 100 + '%', height: region.height * 100 + '%' });
+    outlines.push(outline);
+    preview.append(outline);
+    read.disabled = false;
+  };
+  const read = document.createElement('button');
+  read.type = 'button';
+  read.textContent = 'Read selected text';
+  read.disabled = true;
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.textContent = 'Clear selection';
+  const status = document.createElement('p');
+  status.setAttribute('role', 'status');
+  clear.onclick = () => {
+    regions.length = 0;
+    for (const outline of outlines.splice(0)) outline.remove();
+    status.textContent = '';
+    read.disabled = true;
+    page.text = field.value = '';
+  };
+  read.onclick = async () => {
+    read.disabled = clear.disabled = field.disabled = true;
+    original.style.pointerEvents = 'none';
+    status.className = '';
+    status.textContent = 'Reading text…';
+    page.text = field.value = '';
+    try {
+      const sorted = [...regions].sort((a, b) => a.y - b.y || a.x - b.x);
+      const result = await readScreenshot(page.image, sorted);
+      if (result.unreliable) {
+        status.className = 'flags';
+        status.textContent = 'This selection is too blurry to read reliably. Upload a sharper screenshot or paste the article text.';
+      } else {
+        page.text = field.value = result.text;
+        status.textContent = '';
+      }
+    } catch {
+      status.className = 'flags';
+      status.textContent = 'Could not read the selection. Try again or paste the article text.';
+    } finally {
+      read.disabled = clear.disabled = field.disabled = false;
+      original.style.pointerEvents = '';
+    }
+  };
+  wrapper.append(instruction, read, clear, status, preview);
+  return wrapper;
 }
 $('source-files').addEventListener('change', e => { files = [...e.target.files]; fileOrder(); });
 $('source-form').addEventListener('submit', async e => {
@@ -44,7 +129,8 @@ $('source-form').addEventListener('submit', async e => {
       field.value = page.text;
       field.addEventListener('input', () => { page.text = field.value; });
       label.append(field);
-      row.append(original, label);
+      if (page.needsCrop) row.append(screenshotPicker(page, original, field), label);
+      else row.append(original, label);
       $('flagged-text').append(row);
     }
     const flaggedImages = documentData.images.filter(image => image.flag);
@@ -99,6 +185,9 @@ $('generate-another').onclick=()=>{
   $('source-url').focus();
 };
 $('generate').onclick=async()=>{ $('generate').disabled=true; $('review-status').classList.remove('error'); $('review-status').textContent='Generating PDF…'; try {
+  if (documentData.pages.some(page => page.needsCrop && !page.text.trim())) {
+    throw new Error('Read the selected screenshot text or paste the article before generating a PDF.');
+  }
   const blocks = documentData.blocks ? [...documentData.blocks] : documentData.pages.flatMap(page => page.text.split(/\n\s*\n/).filter(text => text.trim()).map(text => ({type:'paragraph', text})));
   const figuresByBlock = new Map();
   for (const image of documentData.images) {
