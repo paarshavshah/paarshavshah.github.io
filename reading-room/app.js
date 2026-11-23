@@ -1,5 +1,5 @@
-import {extractText, extractUrl, extractFiles} from './extract.js?v=11';
-import {generatePdf} from './pdf.js?v=11';
+import {extractText, extractUrl, extractFiles} from './extract.js?v=12';
+import {generatePdf} from './pdf.js?v=12';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
 function show(id) { for (const name of ['start','review','result']) $(name).hidden = name !== id; }
@@ -82,6 +82,22 @@ $('source-form').addEventListener('submit', async e => {
   } catch (error) { $('source-status').classList.add('error'); $('source-status').textContent = error.message; } finally { $('prepare').disabled=false; }
 });
 $('back').onclick=()=>show('start'); $('edit').onclick=()=>show('review');
+$('generate-another').onclick=()=>{
+  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+  pdfUrl = undefined;
+  documentData = undefined;
+  files = [];
+  $('source-form').reset();
+  $('source-status').textContent = '';
+  $('source-status').classList.remove('error');
+  $('pdf-preview').removeAttribute('src');
+  $('download').removeAttribute('href');
+  $('flagged-text').replaceChildren();
+  $('review-images').replaceChildren();
+  fileOrder();
+  show('start');
+  $('source-url').focus();
+};
 $('generate').onclick=async()=>{ $('generate').disabled=true; $('review-status').classList.remove('error'); $('review-status').textContent='Generating PDF…'; try {
   const blocks = documentData.blocks ? [...documentData.blocks] : documentData.pages.flatMap(page => page.text.split(/\n\s*\n/).filter(text => text.trim()).map(text => ({type:'paragraph', text})));
   const figuresByBlock = new Map();

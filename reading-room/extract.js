@@ -1,7 +1,7 @@
 const URL_ERROR = "Error! Your text isn't legible. Please check it again, or paste the text directly. Cheers.";
 
 function blank() {
-  return { text: '', title: '', author: '', date: '', publisher: '', source: '', pages: [], images: [], warnings: [] };
+  return { text: '', title: '', author: '', date: '', publisher: '', source: '', pages: [], images: [] };
 }
 
 function imageData(file) {
@@ -139,7 +139,6 @@ function extractHtml(html, url, base) {
     }
   }
   result.pages = [{ number: 1, text: result.text, image: '', lowConfidence: true }];
-  result.warnings.push('Review the extracted text and images against the source.');
   return result;
 }
 
@@ -203,7 +202,6 @@ export async function extractFiles(fileList, onProgress = () => {}) {
           page.cleanup();
         }
         await pdf.destroy();
-        result.warnings.push('Review reading order, formatting, figures, equations, notes and references against the original PDF.');
       } else if (file.type.startsWith('image/')) {
         const image = await imageData(file);
         const { text, lowConfidence } = await recognize(image, result.pages.length + 1);
@@ -212,6 +210,5 @@ export async function extractFiles(fileList, onProgress = () => {}) {
     }
   } finally { if (worker) await worker.terminate(); }
   result.text = result.pages.map(page => page.text).join('\n\n');
-  if (result.pages.some(page => page.lowConfidence)) result.warnings.push('Some text may be uncertain. Compare it with the original.');
   return result;
 }
