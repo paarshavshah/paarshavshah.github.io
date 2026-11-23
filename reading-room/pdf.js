@@ -1,5 +1,5 @@
 // Generate a reading edition in the browser. Blocks contain exact extracted text.
-import { PDFDocument, PDFName, PDFString, PDFArray } from 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm';
+import { PDFDocument, PDFName, PDFString, PDFArray, grayscale } from 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm';
 import fontkit from 'https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/+esm';
 
 const FONT_ROOT = new URL('./fonts/', import.meta.url);
@@ -122,6 +122,93 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     }
     y -= heading ? 10 : block.type === 'bibliography' ? 0 : 8;
   }
+  function tableBlock(block) {
+    const grid = block.rows.map(() => []);
+    const cells = [];
+    block.rows.forEach((row, rowIndex) => {
+      let column = 0;
+      for (const cell of row) {
+        while (grid[rowIndex][column]) column++;
+        const item = { ...cell, row: rowIndex, column, end: Math.min(grid.length, rowIndex + cell.rows) };
+        cells.push(item);
+        for (let r = rowIndex; r < item.end; r++) {
+          for (let c = column; c < column + cell.columns; c++) grid[r][c] = true;
+        }
+        column += cell.columns;
+      }
+    });
+    const count = Math.max(0, ...grid.map(row => row.length));
+    if (!count) return;
+    const width = TEXT_WIDTH / count;
+    const padding = Math.min(4, width / 6);
+    const size = count > 7 ? 7 : 9;
+    const leading = size + 2;
+    const heights = grid.map(() => leading + 2 * padding);
+    for (const cell of cells) {
+      cell.font = cell.header ? fonts.bold : fonts.regular;
+      cell.lines = linesOf(cell.text, cell.font, size, width * cell.columns - 2 * padding);
+      const available = heights.slice(cell.row, cell.end).reduce((sum, height) => sum + height, 0);
+      heights[cell.end - 1] += Math.max(0, cell.lines.length * leading + 2 * padding - available);
+    }
+    const offsets = [0];
+    for (const height of heights) offsets.push(offsets.at(-1) + height);
+    const headerRows = block.rows.findIndex(row => row.some(cell => !cell.header));
+    const headerEnd = headerRows > 0 ? headerRows : 0;
+    function drawRange(top, bottom) {
+      for (const cell of cells) {
+        const start = offsets[cell.row];
+        const end = offsets[cell.end];
+        if (start >= bottom || end <= top) continue;
+        const visibleTop = Math.max(start, top);
+        const visibleBottom = Math.min(end, bottom);
+        const x = MARGIN + cell.column * width;
+        page.drawRectangle({
+          x, y: y - (visibleBottom - top), width: width * cell.columns,
+          height: visibleBottom - visibleTop, borderWidth: 0.4, borderColor: grayscale(0.68),
+          color: grayscale(cell.header ? 0.94 : 1)
+        });
+        cell.lines.forEach((line, index) => {
+          const lineTop = start + padding + index * leading;
+          if (line && lineTop >= visibleTop && lineTop + size <= visibleBottom + 0.01) {
+            page.drawText(line, { x: x + padding, y: y - (lineTop - top) - size, size, font: cell.font });
+          }
+        });
+      }
+      y -= bottom - top;
+    }
+    const headerHeight = offsets[headerEnd];
+    const maxHeight = HEIGHT - 2 * MARGIN;
+    room(Math.min(maxHeight, (block.caption ? 18 : 0) + headerHeight + (heights[headerEnd] || 0)));
+    if (block.caption) textBlock({ type: 'paragraph', bold: true, text: block.caption });
+    let top = 0;
+    while (top < offsets.at(-1)) {
+      let space = y - MARGIN - noteHeight();
+      const rowEnd = offsets.find(offset => offset > top);
+      if (rowEnd - top > space && y < HEIGHT - MARGIN) {
+        nextPage();
+        if (headerHeight && top >= headerHeight && headerHeight < maxHeight / 2) drawRange(0, headerHeight);
+        space = y - MARGIN;
+      }
+      let bottom = offsets.findLast(offset => offset > top && offset <= top + space);
+      if (bottom === undefined) {
+        bottom = top + space;
+        for (const cell of cells) {
+          const start = offsets[cell.row] + padding;
+          const line = Math.floor((bottom - start) / leading);
+          const lineTop = start + line * leading;
+          if (line >= 0 && line < cell.lines.length && lineTop < bottom && lineTop + size > bottom) bottom = lineTop;
+        }
+      }
+      if (bottom <= top) { nextPage(); continue; }
+      drawRange(top, bottom);
+      top = bottom;
+      if (top < offsets.at(-1)) {
+        nextPage();
+        if (headerHeight && top >= headerHeight && headerHeight < maxHeight / 2) drawRange(0, headerHeight);
+      }
+    }
+    y -= 12;
+  }
   async function imageBlock(block) {
     const response = block.bytes ? null : await fetch(block.url);
     if (response && !response.ok) throw new Error('An illustration could not be loaded.');
@@ -162,11 +249,15 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
   for (const block of blocks) {
     if (block.type === 'image') await imageBlock(block);
     else if (block.type === 'bibliography' || block.inReferences) pending.push(block);
+    else if (block.type === 'table') tableBlock(block);
     else textBlock(block);
   }
   if (pending.length) {
     room(30);
-    for (const block of pending) textBlock(block);
+    for (const block of pending) {
+      if (block.type === 'table') tableBlock(block);
+      else textBlock(block);
+    }
   }
   finishPage();
   return pdf.save();

@@ -101,6 +101,15 @@ function extractHtml(html, url, base) {
       }
       if (skipSection) return null;
       sourceBlocks.push(element);
+      if (element.tagName === 'TABLE') {
+        const rows = [...element.rows].map(row => [...row.cells].map(cell => ({
+          text: cell.innerText?.trim() || cell.textContent.trim(),
+          header: cell.tagName === 'TH',
+          columns: cell.colSpan,
+          rows: cell.rowSpan || row.parentElement.rows.length - row.sectionRowIndex
+        })));
+        return { type: 'table', rows, caption: element.caption?.textContent.trim() || '', text, inReferences };
+      }
       const type = inReferences ? 'bibliography' : element.tagName === 'BLOCKQUOTE' ? 'quote' : 'paragraph';
       return { type, text };
     }).filter(block => block?.text);
