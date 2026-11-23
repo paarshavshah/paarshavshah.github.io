@@ -1,3 +1,5 @@
+import {layOutPdfPage, pdfDisplayTitle, pdfMarginKeys} from './pdf-import.js?v=19';
+
 const URL_ERROR = "Error! Your text isn't legible. Please check it again, or paste the text directly. Cheers.";
 
 function blank() {
@@ -186,21 +188,6 @@ async function ocrLibrary() {
   return import('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/+esm');
 }
 
-function pdfText(items) {
-  let output = '';
-  let lastY = null;
-  for (const item of items) {
-    if (!item.str) continue;
-    const y = item.transform?.[5];
-    if (lastY != null && y != null && Math.abs(lastY - y) > 3) output += '\n';
-    else if (output && !output.endsWith('\n') && !output.endsWith(' ')) output += ' ';
-    output += item.str;
-    if (item.hasEOL) output += '\n';
-    lastY = y;
-  }
-  return output;
-}
-
 function pdfLines(items) {
   const rows = [];
   const tokens = items.filter(item => item.str?.trim()).map(item => ({
@@ -377,57 +364,95 @@ export async function extractFiles(fileList, onProgress = () => {}) {
       if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
         if (files.length !== 1) throw new Error('Choose one PDF or a sequence of images.');
         const pdfjs = await pdfLibrary();
-        const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-        const { info, metadata } = await pdf.getMetadata().catch(() => ({}));
-        result.title = info?.Title || metadata?.get('dc:title') || '';
-        result.author = info?.Author || '';
-        result.publisher = metadata?.get('dc:publisher') || '';
-        let journal;
+        const sourceBytes = new Uint8Array(await file.arrayBuffer());
+        const pdf = await pdfjs.getDocument({ data: sourceBytes.slice() }).promise;
         try {
-        for (let i = 1; i <= pdf.numPages; i++) {
-          onProgress(`Reading page ${i} of ${pdf.numPages}`);
-          const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-          const image = canvas.toDataURL('image/jpeg', 0.8);
-          const { items } = await page.getTextContent();
-          let lines = pdfLines(items);
-          if (i === 1) {
-            const abstract = lines.find(row => /^Abstract$/i.test(row.text));
-            const published = lines.find(row => /Published:\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}/.test(row.text));
-            const layoutText = lines.map(row => row.text).join(' ');
-            if (abstract && abstract.x > 95 && /10\.3390\//.test(layoutText) && published) {
-              journal = { bodyX: abstract.x, inReferences: false };
-              result.blocks = [];
-              lines = pdfLines(items.filter(item => item.transform?.[4] >= abstract.x - 6));
-              result.date = published.text.match(/Published:\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})/)[1];
-              result.publisher ||= 'MDPI';
-            }
+          const { info, metadata } = await pdf.getMetadata().catch(() => ({}));
+          result.title = info?.Title || metadata?.get('dc:title') || '';
+          result.author = info?.Author || '';
+          result.publisher = metadata?.get('dc:publisher') || '';
+          result.blocks = [];
+
+          // Count repeated margin text across pages before deciding what is furniture.
+          const margins = new Map();
+          const pageItems = [];
+          for (let i = 1; i <= pdf.numPages; i++) {
+            onProgress(`Reading layout ${i} of ${pdf.numPages}`);
+            const page = await pdf.getPage(i);
+            const {items} = await page.getTextContent();
+            const viewport = page.getViewport({scale: 1});
+            if (i === 1 && !result.title) result.title = pdfDisplayTitle(items, viewport);
+            for (const key of pdfMarginKeys(items, viewport)) margins.set(key, (margins.get(key) || 0) + 1);
+            pageItems.push(items);
           }
-          if (journal) {
-            for (const block of journalBlocks(lines, canvas, viewport, journal, i)) {
-              if (block.type === 'pdf-figure') {
-                result.images.push({ ...block.image, after: result.blocks.length - 1 });
-              } else {
-                const last = result.blocks.at(-1);
-                if (block.continues && last?.type === 'paragraph' &&
-                    (!/[.!?][”’)]?$/.test(last.text) || /^[a-z]/.test(block.text)) &&
-                    result.images.at(-1)?.after !== result.blocks.length - 1) {
-                  last.text = appendWrapped(last.text, block.text);
-                } else result.blocks.push(block);
+
+          const state = { running: new Set([...margins].filter(([, count]) =>
+            pdf.numPages >= 3 && count >= Math.max(2, Math.ceil(pdf.numPages * .5))).map(([key]) => key)) };
+          let journal;
+          for (let i = 1; i <= pdf.numPages; i++) {
+            onProgress(`Reading page ${i} of ${pdf.numPages}`);
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({scale: 1});
+            const renderViewport = page.getViewport({scale: Math.min(1.5, 2200 / Math.max(viewport.width, viewport.height))});
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.ceil(renderViewport.width);
+            canvas.height = Math.ceil(renderViewport.height);
+            await page.render({canvasContext: canvas.getContext('2d'), viewport: renderViewport}).promise;
+
+            const items = pageItems[i - 1];
+            pageItems[i - 1] = null;
+            let lines = pdfLines(items);
+            if (i === 1 && page.rotate === 0) {
+              const abstract = lines.find(row => /^Abstract$/i.test(row.text));
+              const published = lines.find(row => /Published:\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}/.test(row.text));
+              if (abstract && abstract.x > 95 && /10\.3390\//.test(lines.map(row => row.text).join(' ')) && published) {
+                journal = {bodyX: abstract.x, inReferences: false};
+                lines = pdfLines(items.filter(item => item.transform?.[4] >= abstract.x - 6));
+                result.date = published.text.match(/Published:\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})/)[1];
+                result.publisher ||= 'MDPI';
               }
             }
+
+            if (journal && items.some(item => item.str?.trim()) && page.rotate === 0) {
+              for (const block of journalBlocks(lines, canvas, renderViewport, journal, i)) {
+                if (block.type === 'pdf-figure') {
+                  result.images.push({...block.image, after: result.blocks.length - 1});
+                } else {
+                  const last = result.blocks.at(-1);
+                  if (block.continues && last?.type === 'paragraph' &&
+                      (!/[.!?][”’)]?$/.test(last.text) || /^[a-z]/.test(block.text)) &&
+                      result.images.at(-1)?.after !== result.blocks.length - 1) {
+                    last.text = appendWrapped(last.text, block.text);
+                  } else result.blocks.push(block);
+                }
+              }
+            } else {
+              const boldFonts = new Set();
+              for (const name of new Set(items.map(item => item.fontName).filter(Boolean))) {
+                if (!page.commonObjs.has(name)) continue;
+                const font = page.commonObjs.get(name);
+                if (font.bold || /bold|demi|semibold|black/i.test(font.name || '')) boldFonts.add(name);
+              }
+              state.page = i;
+              state.title = result.title;
+              const layout = layOutPdfPage(items, viewport, boldFonts, canvas, state);
+              const snapshot = () => canvas.toDataURL('image/jpeg', .9);
+              let {text, reason} = layout;
+              if (!layout.hasText && reason) {
+                try { ({text} = await recognize(snapshot(), i)); }
+                catch { reason = 'The scan could not be transcribed.'; }
+              }
+              if (reason) {
+                const review = {number:i, text, image:snapshot(), lowConfidence:true,
+                  reason, keepOriginal:true, rotated:page.rotate !== 0};
+                result.pages.push(review);
+                result.blocks.push({type:'review-page', review});
+                result.sourceBytes = sourceBytes;
+              } else result.blocks.push(...layout.blocks);
+            }
             page.cleanup();
-            continue;
+            canvas.width = canvas.height = 0;
           }
-          let text = pdfText(items);
-          let lowConfidence = false;
-          if (!text.trim()) ({ text, lowConfidence } = await recognize(image, i));
-          result.pages.push({ number: i, text, image, lowConfidence });
-          page.cleanup();
-        }
         } finally {
           await pdf.destroy();
         }
@@ -444,6 +469,6 @@ export async function extractFiles(fileList, onProgress = () => {}) {
       } else throw new Error('Choose a PDF or image files.');
     }
   } finally { if (worker) await worker.terminate(); }
-  result.text = (result.blocks ?? result.pages).map(item => item.text).join('\n\n');
+  result.text = (result.blocks ?? result.pages).map(item => item.text || item.review?.text || '').join('\n\n');
   return result;
 }

@@ -1,5 +1,5 @@
-import {extractText, extractUrl, extractFiles, readScreenshot} from './extract.js?v=18';
-import {generatePdf} from './pdf.js?v=18';
+import {extractText, extractUrl, extractFiles, readScreenshot} from './extract.js?v=19';
+import {generatePdf} from './pdf.js?v=19';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
 function show(id) { for (const name of ['start','review','result']) $(name).hidden = name !== id; }
@@ -122,13 +122,30 @@ $('source-form').addEventListener('submit', async e => {
       const label = document.createElement('label');
       const flag = document.createElement('span');
       flag.className = 'flags';
-      flag.textContent = 'Flagged text · Page ' + page.number;
+      flag.textContent = 'Page ' + page.number + (page.reason ? ' · ' + page.reason : ' · Flagged text');
       label.append(flag);
       const field = document.createElement('textarea');
       field.rows = 12;
       field.value = page.text;
       field.addEventListener('input', () => { page.text = field.value; });
       label.append(field);
+      if (page.reason) {
+        const keep = document.createElement('input');
+        keep.type = 'checkbox';
+        keep.checked = page.keepOriginal;
+        field.readOnly = keep.checked;
+        keep.onchange = () => {
+          page.keepOriginal = keep.checked;
+          field.readOnly = keep.checked;
+        };
+        const choice = document.createElement('label');
+        choice.append(keep, ' Keep original page');
+        const controls = document.createElement('div');
+        controls.append(choice, label);
+        row.append(original, controls);
+        $('flagged-text').append(row);
+        continue;
+      }
       if (page.needsCrop) row.append(screenshotPicker(page, original, field), label);
       else row.append(original, label);
       $('flagged-text').append(row);
@@ -197,8 +214,14 @@ $('generate').onclick=async()=>{ $('generate').disabled=true; $('review-status')
     figures.push({ type: 'image', url: image.src, caption: image.caption });
     figuresByBlock.set(index, figures);
   }
-  const orderedBlocks = blocks.flatMap((block, index) => [block, ...(figuresByBlock.get(index) || [])]);
-  const bytes=await generatePdf({title:$('meta-title').value,author:$('meta-author').value,date:$('meta-date').value,publisher:$('meta-publisher').value,sourceUrl:documentData.source,blocks:orderedBlocks});
+  const orderedBlocks = blocks.flatMap((block, index) => {
+    if (block.type !== 'review-page') return [block, ...(figuresByBlock.get(index) || [])];
+    const {review} = block;
+    if (review.keepOriginal) return [{type:'source-page', number:review.number, url:review.image, rotated:review.rotated}];
+    if (!review.text.trim()) throw new Error('Add text or keep original page ' + review.number + '.');
+    return review.text.split(/\n\s*\n/).map(text => ({type:'paragraph', text}));
+  });
+  const bytes=await generatePdf({title:$('meta-title').value,author:$('meta-author').value,date:$('meta-date').value,publisher:$('meta-publisher').value,sourceUrl:documentData.source,sourceBytes:documentData.sourceBytes,blocks:orderedBlocks});
   if(pdfUrl) URL.revokeObjectURL(pdfUrl); pdfUrl=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})); $('pdf-preview').src=pdfUrl; $('download').href=pdfUrl;
   const filename = [$('meta-title').value, $('meta-author').value]
     .map(value => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, ''));

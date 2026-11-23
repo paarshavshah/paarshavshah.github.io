@@ -39,7 +39,7 @@ function linesOf(text, font, size, maxWidth) {
   return result;
 }
 
-export async function generatePdf({ title, author, date, publisher, sourceUrl, blocks = [] }) {
+export async function generatePdf({ title, author, date, publisher, sourceUrl, sourceBytes, blocks = [] }) {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   const fonts = {};
@@ -68,7 +68,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     }
     coverY -= item.gap;
   }
-  let page, y, notes;
+  let page, y, notes, preservedPage;
   let pageNumber = 0;
   const lineHeight = 16;
   function beginPage() {
@@ -76,12 +76,13 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     pageNumber++;
     y = HEIGHT - MARGIN;
     notes = [];
+    preservedPage = false;
   }
   function noteHeight(extra = []) {
     return [...notes, ...extra].reduce((n, note) => n + linesOf(note, fonts.regular, 8, TEXT_WIDTH).length * 10 + 4, 0);
   }
   function finishPage() {
-    if (!page) return;
+    if (!page || preservedPage) return;
     let noteY = MARGIN + noteHeight() - 10;
     for (const note of notes) {
       for (const line of linesOf(note, fonts.regular, 8, TEXT_WIDTH)) {
@@ -275,9 +276,38 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
   }
   const references = blocks.filter(block => block.type === 'bibliography' || block.inReferences);
   const ordered = blocks.filter(block => block.type !== 'bibliography' && !block.inReferences);
+  let original;
+  if (sourceBytes && ordered.some(block => block.type === 'source-page' && !block.rotated)) {
+    original = await PDFDocument.load(sourceBytes).catch(() => undefined);
+  }
   beginPage();
   for (let index = 0; index < ordered.length; index++) {
     const block = ordered[index];
+    if (block.type === 'source-page') {
+      if (y < HEIGHT - MARGIN) nextPage();
+      const source = original && !block.rotated && original.getPage(block.number - 1);
+      const crop = source && source.getCropBox();
+      const embedded = source && await pdf.embedPage(source, {
+        left:crop.x, right:crop.x + crop.width, bottom:crop.y, top:crop.y + crop.height
+      }).then(async embeddedPage => {
+        await embeddedPage.embed();
+        return embeddedPage;
+      }).catch(() => undefined);
+      if (embedded) {
+        const scale = Math.min(1, WIDTH / embedded.width, HEIGHT / embedded.height);
+        const width = embedded.width * scale, height = embedded.height * scale;
+        page.drawPage(embedded, {x:(WIDTH - width) / 2, y:(HEIGHT - height) / 2, width, height});
+      } else {
+        const {embedded: image} = await imageLayout(block);
+        const scale = Math.min(WIDTH / image.width, HEIGHT / image.height);
+        const width = image.width * scale, height = image.height * scale;
+        page.drawImage(image, {x:(WIDTH - width) / 2, y:(HEIGHT - height) / 2, width, height});
+      }
+      preservedPage = true;
+      y = MARGIN;
+      continue;
+    }
+    if (preservedPage) nextPage();
     const layout = await measure(block);
     if (block.type === 'heading' && ordered[index - 1]?.type !== 'heading') {
       let needed = 0;
@@ -305,7 +335,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
         else if (following.type === 'table' && opening) {
           needed += captionHeight(following) + opening.offsets[opening.headerEnd] +
             (opening.heights[opening.headerEnd] || 0);
-        } else if (opening) {
+        } else if (opening && following.type !== 'source-page') {
           needed += Math.min(3, opening.lines.length) * opening.leading;
           extraNotes.push(...opening.footnotes);
         }
