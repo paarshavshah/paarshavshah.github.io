@@ -1,5 +1,5 @@
-import {extractText, extractUrl, extractFiles} from './extract.js?v=5';
-import {generatePdf} from './pdf.js?v=4';
+import {extractText, extractUrl, extractFiles} from './extract.js?v=6';
+import {generatePdf} from './pdf.js?v=6';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
 function show(id) { for (const name of ['start','review','result']) $(name).hidden = name !== id; }
@@ -85,5 +85,9 @@ $('generate').onclick=async()=>{ $('generate').disabled=true; $('review-status')
     if (!image.excluded) blocks.push({ type: 'image', url: image.src, caption: image.caption });
   }
   const bytes=await generatePdf({title:$('meta-title').value,author:$('meta-author').value,date:$('meta-date').value,publisher:$('meta-publisher').value,sourceUrl:documentData.source,blocks});
-  if(pdfUrl) URL.revokeObjectURL(pdfUrl); pdfUrl=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})); $('pdf-preview').src=pdfUrl; $('download').href=pdfUrl; $('review-status').textContent = ''; show('result');
+  if(pdfUrl) URL.revokeObjectURL(pdfUrl); pdfUrl=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})); $('pdf-preview').src=pdfUrl; $('download').href=pdfUrl;
+  const filename = [$('meta-title').value, $('meta-author').value]
+    .map(value => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, ''));
+  const [title, author] = filename;
+  $('download').download = ([title || 'Reading Room', author].filter(Boolean).join(' - ').slice(0, 100).trim()) + '.pdf'; $('review-status').textContent = ''; show('result');
 } catch(error) { $('review-status').classList.add('error'); $('review-status').textContent=error.message; } finally { $('generate').disabled=false; } };

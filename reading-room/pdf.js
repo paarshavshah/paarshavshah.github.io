@@ -9,7 +9,7 @@ const FONT_FILES = {
   italic: '400-italic.ttf',
   boldItalic: '700-italic.ttf'
 };
-const WIDTH = 612, HEIGHT = 792, MARGIN = 72, TEXT_WIDTH = WIDTH - MARGIN * 2;
+const WIDTH = 612, HEIGHT = 792, MARGIN = 108, TEXT_WIDTH = WIDTH - MARGIN * 2;
 
 async function fetchBytes(url) {
   const response = await fetch(url);

@@ -78,21 +78,26 @@ function extractHtml(html, url, base) {
   const root = doc.querySelector('article') || doc.querySelector('main') || doc.querySelector('.mw-parser-output') || doc.body;
   root.querySelectorAll('script,style,nav,footer,header,aside,form,button,iframe,[role="navigation"], [aria-label*="advert" i], [class*="advert" i], [id*="advert" i]').forEach(el => el.remove());
   if (root.matches('.mw-parser-output')) {
-    root.querySelectorAll('.ambox,.hatnote,.mw-editsection,.navbox,.shortdescription,.sistersitebox').forEach(element => element.remove());
+    root.querySelectorAll('.ambox,.hatnote,.mw-editsection,.navbox,.shortdescription,.sistersitebox,.infobox,.sidebar,.metadata,.mw-indicators,.mw-jump-link,.noprint,.toc,.portalbox,.authority-control').forEach(element => element.remove());
   }
+  root.querySelectorAll('sup.reference,sup[typeof~="mw:Extension/ref"],[role="doc-noteref"],.mw-cite-backlink,sup.Template-Fact,sup.noprint').forEach(marker => marker.remove());
   let inReferences = false;
+  let skipSection = false;
   result.blocks = [...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,pre,li,table')]
     .filter(element => !element.parentElement?.closest('li,blockquote,table,figure'))
     .map(element => {
       const text = element.textContent.trim();
       if (/^H[1-6]$/.test(element.tagName)) {
         const level = Number(element.tagName[1]);
+        if (level <= 2) skipSection = root.matches('.mw-parser-output') && /^(see also|external links|further reading)$/i.test(text);
+        if (skipSection) return null;
         if (level <= 2) inReferences = /^(references|bibliography|sources|works cited|notes|citations)$/i.test(text);
         return { type: 'heading', level, text, inReferences };
       }
+      if (skipSection) return null;
       const type = inReferences ? 'bibliography' : element.tagName === 'BLOCKQUOTE' ? 'quote' : 'paragraph';
       return { type, text };
-    }).filter(block => block.text);
+    }).filter(block => block?.text);
   result.text = result.blocks.map(block => block.text).join('\n\n');
   if (!result.text.trim()) throw new Error(URL_ERROR);
   for (const figure of root.querySelectorAll('figure')) {
