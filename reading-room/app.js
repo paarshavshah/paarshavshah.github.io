@@ -1,4 +1,4 @@
-import {extractText, extractUrl, extractFiles} from './extract.js?v=6';
+import {extractText, extractUrl, extractFiles} from './extract.js?v=7';
 import {generatePdf} from './pdf.js?v=6';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
@@ -81,10 +81,16 @@ $('source-form').addEventListener('submit', async e => {
 $('back').onclick=()=>show('start'); $('edit').onclick=()=>show('review');
 $('generate').onclick=async()=>{ $('generate').disabled=true; $('review-status').classList.remove('error'); $('review-status').textContent='Generating PDF…'; try {
   const blocks = documentData.blocks ? [...documentData.blocks] : documentData.pages.flatMap(page => page.text.split(/\n\s*\n/).filter(text => text.trim()).map(text => ({type:'paragraph', text})));
+  const figuresByBlock = new Map();
   for (const image of documentData.images) {
-    if (!image.excluded) blocks.push({ type: 'image', url: image.src, caption: image.caption });
+    if (image.excluded) continue;
+    const index = image.after ?? blocks.length - 1;
+    const figures = figuresByBlock.get(index) || [];
+    figures.push({ type: 'image', url: image.src, caption: image.caption });
+    figuresByBlock.set(index, figures);
   }
-  const bytes=await generatePdf({title:$('meta-title').value,author:$('meta-author').value,date:$('meta-date').value,publisher:$('meta-publisher').value,sourceUrl:documentData.source,blocks});
+  const orderedBlocks = blocks.flatMap((block, index) => [block, ...(figuresByBlock.get(index) || [])]);
+  const bytes=await generatePdf({title:$('meta-title').value,author:$('meta-author').value,date:$('meta-date').value,publisher:$('meta-publisher').value,sourceUrl:documentData.source,blocks:orderedBlocks});
   if(pdfUrl) URL.revokeObjectURL(pdfUrl); pdfUrl=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})); $('pdf-preview').src=pdfUrl; $('download').href=pdfUrl;
   const filename = [$('meta-title').value, $('meta-author').value]
     .map(value => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, ''));

@@ -77,44 +77,57 @@ function extractHtml(html, url, base) {
   result.publisher = metadata(doc, 'meta[property="og:site_name"]');
   const root = doc.querySelector('article') || doc.querySelector('main') || doc.querySelector('.mw-parser-output') || doc.body;
   root.querySelectorAll('script,style,nav,footer,header,aside,form,button,iframe,[role="navigation"], [aria-label*="advert" i], [class*="advert" i], [id*="advert" i]').forEach(el => el.remove());
-  if (root.matches('.mw-parser-output')) {
+  const isWikipedia = root.matches('.mw-parser-output');
+  if (isWikipedia) {
     root.querySelectorAll('.ambox,.hatnote,.mw-editsection,.navbox,.shortdescription,.sistersitebox,.infobox,.sidebar,.metadata,.mw-indicators,.mw-jump-link,.noprint,.toc,.portalbox,.authority-control').forEach(element => element.remove());
   }
   root.querySelectorAll('sup.reference,sup[typeof~="mw:Extension/ref"],[role="doc-noteref"],.mw-cite-backlink,sup.Template-Fact,sup.noprint').forEach(marker => marker.remove());
+  const figureSelector = isWikipedia ? 'figure, .thumb, .gallerybox, .tsingle' : 'figure';
+  const sourceBlocks = [];
   let inReferences = false;
   let skipSection = false;
   result.blocks = [...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,pre,li,table')]
-    .filter(element => !element.parentElement?.closest('li,blockquote,table,figure'))
+    .filter(element => !element.closest(figureSelector) && !element.parentElement?.closest('li,blockquote,table'))
     .map(element => {
       const text = element.textContent.trim();
+      if (!text) return null;
       if (/^H[1-6]$/.test(element.tagName)) {
         const level = Number(element.tagName[1]);
-        if (level <= 2) skipSection = root.matches('.mw-parser-output') && /^(see also|external links|further reading)$/i.test(text);
+        if (level <= 2) skipSection = isWikipedia && /^(see also|external links|further reading)$/i.test(text);
         if (skipSection) return null;
         if (level <= 2) inReferences = /^(references|bibliography|sources|works cited|notes|citations)$/i.test(text);
+        sourceBlocks.push(element);
         return { type: 'heading', level, text, inReferences };
       }
       if (skipSection) return null;
+      sourceBlocks.push(element);
       const type = inReferences ? 'bibliography' : element.tagName === 'BLOCKQUOTE' ? 'quote' : 'paragraph';
       return { type, text };
     }).filter(block => block?.text);
   result.text = result.blocks.map(block => block.text).join('\n\n');
   if (!result.text.trim()) throw new Error(URL_ERROR);
-  for (const figure of root.querySelectorAll('figure')) {
-    const image = figure.querySelector('img');
-    const source = image?.getAttribute('src');
-    if (!source || source.startsWith('data:')) continue;
-    try {
-      const imageUrl = new URL(source, base);
-      if (!['https:', 'http:'].includes(imageUrl.protocol)) continue;
-      const caption = figure.querySelector('figcaption')?.textContent?.trim() || '';
-      result.images.push({
-        src: imageUrl.href,
-        alt: image.getAttribute('alt') || '',
-        caption,
-        flag: caption ? '' : 'Missing caption'
-      });
-    } catch { /* Skip invalid image URLs. */ }
+  const firstParagraph = result.blocks.findIndex(block => block.type === 'paragraph');
+  const seenImages = new Set();
+  for (const figure of root.querySelectorAll(figureSelector)) {
+    const caption = figure.querySelector('figcaption,.thumbcaption,.gallerytext')?.textContent?.trim() || '';
+    let after = sourceBlocks.findLastIndex(element => element.compareDocumentPosition(figure) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (after < firstParagraph) after = firstParagraph;
+    if (after < 0) after = 0;
+    for (const image of figure.querySelectorAll('img[src]')) {
+      try {
+        const url = new URL(image.getAttribute('src'), base);
+        if (!['https:', 'http:'].includes(url.protocol) || seenImages.has(url.href)) continue;
+        if (isWikipedia && !['upload.wikimedia.org', 'thumb.wikimedia.org'].includes(url.hostname)) continue;
+        seenImages.add(url.href);
+        result.images.push({
+          src: url.href,
+          alt: image.getAttribute('alt') || '',
+          caption,
+          after,
+          flag: caption ? '' : 'Missing caption'
+        });
+      } catch { /* Skip invalid image URLs. */ }
+    }
   }
   result.pages = [{ number: 1, text: result.text, image: '', lowConfidence: true }];
   result.warnings.push('Review the extracted text and images against the source.');
