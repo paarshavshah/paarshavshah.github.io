@@ -44,7 +44,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
   pdf.registerFontkit(fontkit);
   const fonts = {};
   for (const [style, filename] of Object.entries(FONT_FILES)) {
-    fonts[style] = await pdf.embedFont(await fetchBytes(new URL(filename, FONT_ROOT)), { subset: false });
+    fonts[style] = await pdf.embedFont(await fetchBytes(new URL(filename, FONT_ROOT)), { subset: false, features: { liga: false, clig: false } });
   }
   pdf.setTitle(title || '');
   if (author) pdf.setAuthor(author);
@@ -102,8 +102,8 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
     const quoteIndent = block.type === 'quote' ? 18 : 0;
     const bold = block.bold || heading;
     const font = bold && block.italic ? fonts.boldItalic : bold ? fonts.bold : block.italic ? fonts.italic : fonts.regular;
-    const size = heading ? (block.level > 2 ? 14 : 18) : block.type === 'bibliography' ? 8 : 12;
-    const leading = heading ? size + 5 : block.type === 'bibliography' ? 11 : lineHeight;
+    const size = heading ? (block.level > 2 ? 14 : 18) : block.type === 'bibliography' ? 6 : 12;
+    const leading = heading ? size + 5 : block.type === 'bibliography' ? 6 : lineHeight;
     const lines = linesOf(block.text || '', font, size, TEXT_WIDTH - 2 * quoteIndent);
     if (heading) {
       room(lines.length * leading + lineHeight + 14);
@@ -120,7 +120,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
       y -= leading;
       firstLine = false;
     }
-    y -= block.type === 'heading' ? 10 : 8;
+    y -= heading ? 10 : block.type === 'bibliography' ? 0 : 8;
   }
   async function imageBlock(block) {
     const bytes = block.bytes || await fetchBytes(block.url);
