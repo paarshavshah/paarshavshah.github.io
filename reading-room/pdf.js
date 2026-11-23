@@ -176,7 +176,7 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
         page.drawRectangle({
           x, y: y - (visibleBottom - top), width: width * cell.columns,
           height: visibleBottom - visibleTop, borderWidth: 0.25, borderColor: grayscale(0.68),
-          color: grayscale(cell.header ? 0.94 : 1)
+          color: grayscale(1)
         });
         cell.lines.forEach((line, index) => {
           const lineTop = start + padding + index * leading;
