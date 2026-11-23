@@ -25,9 +25,9 @@ $('source-form').addEventListener('submit', async e => {
     documentData = url ? await extractUrl(url, p => $('source-status').textContent = p) : files.length ? await extractFiles(files, p => $('source-status').textContent = p) : extractText(text);
     for (const field of ['title','author','date','publisher']) $('meta-'+field).value = documentData[field] || '';
     $('review-status').textContent = '';
-    $('review-flags').textContent = documentData.warnings.join(' ');
+    const flaggedPages = documentData.pages.filter(page => page.lowConfidence && page.image);
     $('flagged-text').replaceChildren();
-    for (const page of documentData.pages.filter(page => page.lowConfidence && page.image)) {
+    for (const page of flaggedPages) {
       const row = document.createElement('div');
       row.className = 'review-columns';
       const original = document.createElement('img');
@@ -48,6 +48,9 @@ $('source-form').addEventListener('submit', async e => {
       $('flagged-text').append(row);
     }
     const flaggedImages = documentData.images.filter(image => image.flag);
+    $('review-flags').textContent = flaggedPages.length || flaggedImages.length
+      ? 'Review the flagged text or images against the source.'
+      : '';
     const reviewImages = $('review-images');
     reviewImages.replaceChildren();
     $('images-section').hidden = flaggedImages.length === 0;
