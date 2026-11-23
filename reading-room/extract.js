@@ -201,6 +201,130 @@ function pdfText(items) {
   return output;
 }
 
+function pdfLines(items) {
+  const rows = [];
+  const tokens = items.filter(item => item.str?.trim()).map(item => ({
+    text: item.str, x: item.transform[4], y: item.transform[5],
+    width: item.width, size: Math.abs(item.transform[3]) || item.height
+  })).sort((a, b) => b.y - a.y || a.x - b.x);
+  for (const token of tokens) {
+    const row = rows.at(-1);
+    if (row && Math.abs(row.y - token.y) <= 2.4) row.tokens.push(token);
+    else rows.push({ y: token.y, tokens: [token] });
+  }
+  return rows.map(row => {
+    const parts = row.tokens.sort((a, b) => a.x - b.x);
+    const text = parts.reduce((line, part, index) => {
+      const previous = parts[index - 1];
+      const gap = previous ? part.x - previous.x - previous.width : 0;
+      return line + (previous && gap > Math.min(part.size, previous.size) * 0.14 &&
+        !/\s$/.test(line) && !/^\s/.test(part.text) ? ' ' : '') + part.text;
+    }, '').trim();
+    return { y: row.y, x: parts[0].x, right: Math.max(...parts.map(p => p.x + p.width)),
+      size: Math.max(...parts.map(p => p.size)), text };
+  });
+}
+
+function appendWrapped(previous, next) {
+  return /[\p{L}]-$/u.test(previous) && /^\p{Ll}/u.test(next)
+    ? previous.slice(0, -1) + next : previous + ' ' + next;
+}
+
+function journalBlocks(lines, canvas, viewport, state, pageNumber) {
+  const pageHeight = viewport.height / viewport.scale;
+  const pageWidth = viewport.width / viewport.scale;
+  const visible = lines.filter(row => row.y > 47 && row.y < pageHeight - 54);
+  const onFirstPage = pageNumber === 1;
+  const abstract = visible.find(row => /^Abstract$/i.test(row.text));
+  const body = onFirstPage ? visible.filter(row => row.y <= abstract.y && row.x >= abstract.x - 6) : visible;
+  const bodyX = state.bodyX;
+  const captionPattern = /^(Figure|Table)\s+\d+[a-z]?\.\s+/i;
+  const captionAt = row => row.size < 9.7 && Math.abs(row.x - bodyX) < 8 && captionPattern.test(row.text);
+  const isProse = row => row.size >= 9.7 &&
+    (Math.abs(row.x - bodyX) < 4 || Math.abs(row.x - bodyX - 22) < 4);
+  const blocks = [];
+  const excluded = new Set();
+  const anchors = new Map();
+
+  function makeImage(top, bottom, caption, isTable) {
+    if (top <= bottom + 8) return null;
+    const crop = document.createElement('canvas');
+    const scale = viewport.scale;
+    const inset = 34 * scale;
+    crop.width = Math.round((pageWidth - 68) * scale);
+    crop.height = Math.round((top - bottom) * scale);
+    crop.getContext('2d').drawImage(canvas, inset, (pageHeight - top) * scale,
+      crop.width, crop.height, 0, 0, crop.width, crop.height);
+    const image = { src: crop.toDataURL('image/png'), caption, alt: caption };
+    if (isTable) image.flag = 'Table kept as a source image. Review the values and labels.';
+    return { type: 'pdf-figure', image };
+  }
+
+  for (let i = 0; i < body.length && !state.inReferences; i++) {
+    const row = body[i];
+    if (!captionAt(row)) continue;
+    let end = i + 1;
+    let caption = row.text;
+    while (end < body.length && body[end].size < 9.7 && body[end - 1].y - body[end].y < 16 &&
+      Math.abs(body[end].x - bodyX) < 8 && !captionAt(body[end])) {
+      caption = appendWrapped(caption, body[end].text);
+      end++;
+    }
+    const isTable = /^Table\b/i.test(caption);
+    let top;
+    let bottom;
+    if (isTable) {
+      let after = end;
+      while (after < body.length && !captionAt(body[after])) {
+        const candidate = body[after];
+        const gap = (body[after - 1] || row).y - candidate.y;
+        if (after > end && gap > 17 && isProse(candidate)) break;
+        after++;
+      }
+      if (after === end) continue;
+      top = body[end - 1].y - 3;
+      bottom = body[after - 1].y - 8;
+      for (let k = i; k < after; k++) excluded.add(k);
+    } else {
+      let before = i - 1;
+      while (before >= 0 && !(isProse(body[before]) && body[before].text.length > 36) && !excluded.has(before)) before--;
+      top = before >= 0 ? body[before].y - 6 : pageHeight - 53;
+      bottom = row.y + row.size + 2;
+      for (let k = before + 1; k < end; k++) excluded.add(k);
+    }
+    const figure = makeImage(top, bottom, caption, isTable);
+    if (figure) anchors.set(i, figure);
+  }
+
+  let current;
+  let previous;
+  for (const [index, row] of body.entries()) {
+    if (anchors.has(index)) { blocks.push(anchors.get(index)); current = null; }
+    if (excluded.has(index)) continue;
+    const text = state.inReferences ? row.text.replace(/\s*\[(?:CrossRef|PubMed)\]/g, '') :
+      row.text.replace(/\s*\[\d+(?:\s*[,;–-]\s*\d+)*\]/g, '');
+    if (!text.trim()) continue;
+    if (state.inReferences && /^Disclaimer\/Publisher[’']s Note:/i.test(text)) break;
+    if (/^References$/i.test(text)) state.inReferences = true;
+    const numbered = /^(\d+(?:\.\d+)*\.)\s+\p{L}/u.exec(text);
+    const heading = /^(Abstract|Abbreviations|References)$/i.test(text) ||
+      (Math.abs(row.x - bodyX) < 8 && numbered && text.length < 115 && !state.inReferences);
+    const headingLevel = numbered?.[1].replace(/\.$/, '').includes('.') ? 3 : 2;
+    const type = heading ? 'heading' : state.inReferences ? 'bibliography' : 'paragraph';
+    const newParagraph = !current || current.type !== type || heading ||
+      (state.inReferences ? /^\d+\.\s/.test(text) :
+        (row.x > bodyX + 14 && row.x < bodyX + 28) ||
+        (previous && previous.y - row.y > 17));
+    if (newParagraph) {
+      current = { type, text, level: headingLevel, inReferences: state.inReferences };
+      if (blocks.length === 0 && type === 'paragraph' && Math.abs(row.x - bodyX) < 4) current.continues = true;
+      blocks.push(current);
+    } else current.text = appendWrapped(current.text, text);
+    previous = row;
+  }
+  return blocks;
+}
+
 export async function extractFiles(fileList, onProgress = () => {}) {
   const files = [...fileList];
   if (!files.length) throw new Error('Choose a PDF or images to continue.');
@@ -221,6 +345,12 @@ export async function extractFiles(fileList, onProgress = () => {}) {
         if (files.length !== 1) throw new Error('Choose one PDF or a sequence of images.');
         const pdfjs = await pdfLibrary();
         const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+        const { info, metadata } = await pdf.getMetadata().catch(() => ({}));
+        result.title = metadata?.get('dc:title') || info?.Title || '';
+        result.author = info?.Author || '';
+        result.publisher = metadata?.get('dc:publisher') || '';
+        let journal;
+        try {
         for (let i = 1; i <= pdf.numPages; i++) {
           onProgress(`Reading page ${i} of ${pdf.numPages}`);
           const page = await pdf.getPage(i);
@@ -229,13 +359,45 @@ export async function extractFiles(fileList, onProgress = () => {}) {
           canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
           await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
           const image = canvas.toDataURL('image/jpeg', 0.8);
-          let text = pdfText((await page.getTextContent()).items);
+          const { items } = await page.getTextContent();
+          let lines = pdfLines(items);
+          if (i === 1) {
+            const abstract = lines.find(row => /^Abstract$/i.test(row.text));
+            const published = lines.find(row => /Published:\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}/.test(row.text));
+            const layoutText = lines.map(row => row.text).join(' ');
+            if (abstract && abstract.x > 95 && /10\.3390\//.test(layoutText) && published) {
+              journal = { bodyX: abstract.x, inReferences: false };
+              result.blocks = [];
+              lines = pdfLines(items.filter(item => item.transform?.[4] >= abstract.x - 6));
+              result.date = published.text.match(/Published:\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})/)[1];
+              result.publisher ||= 'MDPI';
+            }
+          }
+          if (journal) {
+            for (const block of journalBlocks(lines, canvas, viewport, journal, i)) {
+              if (block.type === 'pdf-figure') {
+                result.images.push({ ...block.image, after: result.blocks.length - 1 });
+              } else {
+                const last = result.blocks.at(-1);
+                if (block.continues && last?.type === 'paragraph' &&
+                    (!/[.!?][”’)]?$/.test(last.text) || /^[a-z]/.test(block.text)) &&
+                    result.images.at(-1)?.after !== result.blocks.length - 1) {
+                  last.text = appendWrapped(last.text, block.text);
+                } else result.blocks.push(block);
+              }
+            }
+            page.cleanup();
+            continue;
+          }
+          let text = pdfText(items);
           let lowConfidence = false;
           if (!text.trim()) ({ text, lowConfidence } = await recognize(image, i));
           result.pages.push({ number: i, text, image, lowConfidence });
           page.cleanup();
         }
-        await pdf.destroy();
+        } finally {
+          await pdf.destroy();
+        }
       } else if (file.type.startsWith('image/')) {
         const image = await imageData(file);
         const preview = new Image();
@@ -249,6 +411,6 @@ export async function extractFiles(fileList, onProgress = () => {}) {
       } else throw new Error('Choose a PDF or image files.');
     }
   } finally { if (worker) await worker.terminate(); }
-  result.text = result.pages.map(page => page.text).join('\n\n');
+  result.text = (result.blocks ?? result.pages).map(item => item.text).join('\n\n');
   return result;
 }

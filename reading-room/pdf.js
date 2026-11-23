@@ -51,7 +51,8 @@ export async function generatePdf({ title, author, date, publisher, sourceUrl, b
   const first = pdf.addPage([WIDTH, HEIGHT]);
   const coverLines = [
     ...linesOf(title || '', fonts.bold, 24, TEXT_WIDTH).map(text => ({ text, font: fonts.bold, size: 24, gap: 30 })),
-    ...[author, date, publisher, sourceUrl ? 'Source' : ''].filter(Boolean).map(text => ({ text, font: fonts.regular, size: 12, gap: 20 }))
+    ...[author, date, publisher, sourceUrl ? 'Source' : ''].filter(Boolean).flatMap(field => linesOf(field, fonts.regular, 12, TEXT_WIDTH)
+      .map(text => ({ text, font: fonts.regular, size: 12, gap: 16 })))
   ];
   let coverY = HEIGHT / 2 + coverLines.reduce((n, l) => n + l.gap, 0) / 2;
   for (const item of coverLines) {
