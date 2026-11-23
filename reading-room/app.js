@@ -1,5 +1,5 @@
-import {extractText, extractUrl, extractFiles, readScreenshot} from './extract.js?v=17';
-import {generatePdf} from './pdf.js?v=17';
+import {extractText, extractUrl, extractFiles, readScreenshot} from './extract.js?v=18';
+import {generatePdf} from './pdf.js?v=18';
 const $ = id => document.getElementById(id);
 let documentData, files = [], pdfUrl;
 function show(id) { for (const name of ['start','review','result']) $(name).hidden = name !== id; }

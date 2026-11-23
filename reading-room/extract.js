@@ -212,16 +212,32 @@ function pdfLines(items) {
     if (row && Math.abs(row.y - token.y) <= 2.4) row.tokens.push(token);
     else rows.push({ y: token.y, tokens: [token] });
   }
+  const scripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+  for (let index = rows.length - 2; index >= 0; index--) {
+    const row = rows[index];
+    const base = rows[index + 1];
+    if (row.y - base.y > 5 || !row.tokens.every(token => token.size < 8 &&
+        /^[−+\d]+$/.test(token.text.trim())) || !base.tokens.some(token => token.size >= 9.7)) continue;
+    const right = Math.max(...base.tokens.map(token => token.x + token.width));
+    if (!row.tokens.every(token => token.x < right &&
+        base.tokens.some(part => Math.abs(part.x + part.width - token.x) < 10))) continue;
+    for (const token of row.tokens) {
+      token.text = token.text.replace(/[−+\d]/g, character =>
+        character === '−' ? '⁻' : character === '+' ? '⁺' : scripts[Number(character)]);
+      base.tokens.push(token);
+    }
+    rows.splice(index, 1);
+  }
   return rows.map(row => {
     const parts = row.tokens.sort((a, b) => a.x - b.x);
     const text = parts.reduce((line, part, index) => {
       const previous = parts[index - 1];
       const gap = previous ? part.x - previous.x - previous.width : 0;
-      return line + (previous && gap > Math.min(part.size, previous.size) * 0.14 &&
+      return line + (previous && gap > Math.min(part.size, previous.size) * 0.14 && !/^[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]/.test(part.text) &&
         !/\s$/.test(line) && !/^\s/.test(part.text) ? ' ' : '') + part.text;
     }, '').trim();
     return { y: row.y, x: parts[0].x, right: Math.max(...parts.map(p => p.x + p.width)),
-      size: Math.max(...parts.map(p => p.size)), text };
+      size: Math.max(...parts.map(p => p.size)), text, parts };
   });
 }
 
@@ -288,7 +304,7 @@ function journalBlocks(lines, canvas, viewport, state, pageNumber) {
     } else {
       let before = i - 1;
       while (before >= 0 && !(isProse(body[before]) && body[before].text.length > 36) && !excluded.has(before)) before--;
-      top = before >= 0 ? body[before].y - 6 : pageHeight - 53;
+      top = before >= 0 ? body[before].y - 6 : pageHeight - 61;
       bottom = row.y + row.size + 2;
       for (let k = before + 1; k < end; k++) excluded.add(k);
     }
@@ -301,11 +317,28 @@ function journalBlocks(lines, canvas, viewport, state, pageNumber) {
   for (const [index, row] of body.entries()) {
     if (anchors.has(index)) { blocks.push(anchors.get(index)); current = null; }
     if (excluded.has(index)) continue;
+    if (state.inAbbreviations && row.size < 9.7 && Math.abs(row.x - bodyX) < 4) {
+      const column = row.parts.findIndex((part, k) => k > 0 &&
+        part.x - row.parts[k - 1].x - row.parts[k - 1].width > 16);
+      if (column > 0) {
+        if (current?.type !== 'table') {
+          current = { type: 'table', rows: [] };
+          blocks.push(current);
+        }
+        current.rows.push([row.parts.slice(0, column), row.parts.slice(column)].map(parts => ({
+          text: parts.map(part => part.text).join(' ').replace(/\s+/g, ' ').trim(),
+          header: false, rows: 1, columns: 1
+        })));
+        previous = row;
+        continue;
+      }
+    }
     const text = state.inReferences ? row.text.replace(/\s*\[(?:CrossRef|PubMed)\]/g, '') :
       row.text.replace(/\s*\[\d+(?:\s*[,;–-]\s*\d+)*\]/g, '');
     if (!text.trim()) continue;
     if (state.inReferences && /^Disclaimer\/Publisher[’']s Note:/i.test(text)) break;
-    if (/^References$/i.test(text)) state.inReferences = true;
+    if (/^Abbreviations$/i.test(text)) state.inAbbreviations = true;
+    if (/^References$/i.test(text)) { state.inReferences = true; state.inAbbreviations = false; }
     const numbered = /^(\d+(?:\.\d+)*\.)\s+\p{L}/u.exec(text);
     const heading = /^(Abstract|Abbreviations|References)$/i.test(text) ||
       (Math.abs(row.x - bodyX) < 8 && numbered && text.length < 115 && !state.inReferences);
